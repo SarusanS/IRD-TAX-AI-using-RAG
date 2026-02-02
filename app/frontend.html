@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IRD Tax AI Chatbot</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 800px;
+            width: 100%;
+            padding: 40px;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .input-section {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 30px;
+        }
+
+        #question {
+            flex: 1;
+            padding: 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+
+        #question:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        button {
+            padding: 15px 30px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            color: #667eea;
+            margin: 20px 0;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        .result {
+            display: none;
+            margin-top: 20px;
+        }
+
+        .result.active {
+            display: block;
+        }
+
+        .answer-box {
+            background: #f8f9fa;
+            border-left: 4px solid #667eea;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            
+            
+            white-space: pre-line;
+            
+            line-height: 1.6;
+            color: #333;
+        }
+
+        .sources {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            border-radius: 10px;
+        }
+
+        .sources h3 {
+            color: #856404;
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+
+        .source-item {
+            color: #856404;
+            padding: 5px 0;
+            font-size: 14px;
+        }
+
+        .error {
+            background: #f8d7da;
+            border-left: 4px solid #dc3545;
+            padding: 15px;
+            border-radius: 10px;
+            color: #721c24;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>IRD Tax AI Assistant</h1>
+        <p class="subtitle">Ask questions about Sri Lankan tax regulations</p>
+
+        <div class="input-section">
+            <input 
+                type="text" 
+                id="question" 
+                placeholder="e.g., What is the Corporate Income Tax rate for AY 2022/2023?"
+                onkeypress="if(event.key === 'Enter') askQuestion()"
+            >
+            <button onclick="askQuestion()" id="askBtn">Ask</button>
+        </div>
+
+        <div class="loading" id="loading">
+            <p>Searching IRD documents...</p>
+        </div>
+
+        <div class="result" id="result">
+            <div class="answer-box" id="answer"></div>
+            <div class="sources" id="sources"></div>
+        </div>
+    </div>
+
+    <script>
+        async function askQuestion() {
+            const questionInput = document.getElementById('question');
+            const question = questionInput.value.trim();
+            
+            if (!question) {
+                alert('Please enter a question');
+                return;
+            }
+
+           
+            document.getElementById('loading').classList.add('active');
+            document.getElementById('result').classList.remove('active');
+            document.getElementById('askBtn').disabled = true;
+
+            try {
+                const response = await fetch('http://localhost:8000/ask', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ question: question })
+                });
+
+                const data = await response.json();
+
+                // Display answer
+                document.getElementById('answer').textContent = data.answer;
+
+                // Display sources
+                const sourcesDiv = document.getElementById('sources');
+                if (data.sources && data.sources.length > 0) {
+                    let sourcesHTML = '<h3>Sources:</h3>';
+                    data.sources.forEach(source => {
+                        sourcesHTML += `<div class="source-item">📄 ${source.file} (Page ${source.page})</div>`;
+                    });
+                    sourcesDiv.innerHTML = sourcesHTML;
+                } else {
+                    sourcesDiv.innerHTML = '<h3>No sources found</h3>';
+                }
+
+                // Show results
+                document.getElementById('result').classList.add('active');
+
+            } catch (error) {
+                document.getElementById('answer').innerHTML = 
+                    `<div class="error">Error: ${error.message}. Make sure the API server is running on http://localhost:8000</div>`;
+                document.getElementById('result').classList.add('active');
+            } finally {
+                document.getElementById('loading').classList.remove('active');
+                document.getElementById('askBtn').disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>
