@@ -16,11 +16,18 @@ MODEL = "llama-3.1-8b-instant" # Groq LLM model
 print("Loading models...")
 sbert_model = SentenceTransformer(EMBEDDING_MODEL)
 
-print("Loading vector store...")
-index = faiss.read_index(INDEX_FILE)
-with open(META_FILE, "rb") as f:
-    documents = pickle.load(f)
-print(f"Loaded {len(documents)} chunks")
+# Don't load vector store at startup - load it for each query instead
+print("Ready to answer questions")
+
+def load_vector_store():
+    """
+    Load vector store fresh each time
+    This ensures we always have the latest uploaded PDFs
+    """
+    index = faiss.read_index(INDEX_FILE)
+    with open(META_FILE, "rb") as f:
+        documents = pickle.load(f)
+    return index, documents
 
 def answer_question(question: str, k: int = 5, debug: bool = False): 
     if not client:
@@ -29,6 +36,12 @@ def answer_question(question: str, k: int = 5, debug: bool = False):
             "answer": "Error: Please set GROQ_API_KEY. Get free key from: https://console.groq.com/keys",
             "sources": []
         }
+    
+    # Load vector store fresh for each query (includes new uploads!)
+    index, documents = load_vector_store()
+    
+    if debug:
+        print(f"Loaded {len(documents)} chunks from vector store")
     
     #RETRIEVE relevant chunks
     query_embedding = sbert_model.encode(
@@ -42,6 +55,7 @@ def answer_question(question: str, k: int = 5, debug: bool = False):
     if debug:
         print(f"\n Retrieved {k} chunks")
         print(f"Best distance: {distances[0][0]:.4f}")
+        print(f"Sources: {[doc['source'] for doc in retrieved_docs[:3]]}")
     
     #Build context
     context = "\n\n".join([doc["text"] for doc in retrieved_docs])
