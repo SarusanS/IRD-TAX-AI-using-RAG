@@ -173,6 +173,31 @@
             color: #333;
         }
 
+        /* Special styling for "not available" messages */
+        .answer-box.not-available {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            color: #856404;
+            font-weight: 500;
+        }
+
+        /* Disclaimer styling */
+        .disclaimer {
+            background: #e7f3ff;
+            border-left: 4px solid #2196f3;
+            padding: 12px 15px;
+            border-radius: 8px;
+            margin-top: 15px;
+            font-size: 13px;
+            color: #0d47a1;
+            font-style: italic;
+        }
+
+        .disclaimer::before {
+            content: "ℹ️ ";
+            font-style: normal;
+        }
+
         .sources {
             background: #fff3cd;
             border-left: 4px solid #ffc107;
@@ -212,7 +237,7 @@
 </head>
 <body>
     <div class="container">
-        <h1>IRD Tax AI Assistant</h1>
+        <h1>🇱🇰 IRD Tax AI Assistant</h1>
         <p class="subtitle">Ask questions about Sri Lankan tax regulations</p>
 
         <!-- Statistics -->
@@ -222,7 +247,7 @@
 
         <!-- PDF Upload Section -->
         <div class="upload-section">
-            <h3>Add New PDF Document</h3>
+            <h3>📄 Add New PDF Document</h3>
             <p style="color: #666; font-size: 13px; margin-bottom: 10px;">
                 Upload PDF files to expand the knowledge base
             </p>
@@ -251,12 +276,12 @@
         </div>
 
         <div class="loading" id="loading">
-            <p>Searching IRD documents...</p>
+            <p>🔍 Searching IRD documents...</p>
         </div>
 
         <div class="result" id="result">
-            <div class="answer-box" id="answer"></div>
-            <div class="sources" id="sources"></div>
+            <div id="answerContainer"></div>
+            <div class="sources" id="sources" style="display: none;"></div>
         </div>
     </div>
 
@@ -274,13 +299,13 @@
                 const data = await response.json();
                 
                 if (data.error) {
-                    document.getElementById('stats').textContent = 'Statistics not available';
+                    document.getElementById('stats').textContent = '📊 Statistics not available';
                 } else {
                     document.getElementById('stats').innerHTML = 
-                        `<strong>Knowledge Base:</strong> ${data.total_pdfs} PDF(s) | ${data.total_chunks} chunks | Files: ${data.pdf_files.join(', ')}`;
+                        `<strong>📚 Knowledge Base:</strong> ${data.total_pdfs} PDF(s) | ${data.total_chunks} chunks | Files: ${data.pdf_files.join(', ')}`;
                 }
             } catch (error) {
-                document.getElementById('stats').textContent = 'Statistics not available';
+                document.getElementById('stats').textContent = '📊 Statistics not available';
             }
         }
 
@@ -306,7 +331,7 @@
             
             uploadBtn.disabled = true;
             uploadBtn.textContent = 'Processing...';
-            uploadResult.innerHTML = '<div class="loading active">Uploading and processing PDF...</div>';
+            uploadResult.innerHTML = '<div class="loading active">⏳ Uploading and processing PDF...</div>';
 
             try {
                 const formData = new FormData();
@@ -321,7 +346,7 @@
 
                 if (response.ok) {
                     uploadResult.innerHTML = 
-                        `<div class="success">✓ ${data.message}<br>Added ${data.chunks_added} chunks from ${data.filename}</div>`;
+                        `<div class="success">✅ ${data.message}<br>Added ${data.chunks_added} chunks from ${data.filename}</div>`;
                     
                     // Reset file input
                     document.getElementById('pdfFile').value = '';
@@ -332,11 +357,11 @@
                     loadStats();
                 } else {
                     uploadResult.innerHTML = 
-                        `<div class="error">Error: ${data.error}</div>`;
+                        `<div class="error">❌ Error: ${data.error}</div>`;
                 }
             } catch (error) {
                 uploadResult.innerHTML = 
-                    `<div class="error">Error: ${error.message}</div>`;
+                    `<div class="error">❌ Error: ${error.message}</div>`;
             } finally {
                 uploadBtn.disabled = false;
                 uploadBtn.textContent = 'Upload & Process';
@@ -368,25 +393,51 @@
 
                 const data = await response.json();
 
-                document.getElementById('answer').textContent = data.answer;
+                // Check if information is not available
+                const isNotAvailable = data.answer.includes("not available in the provided IRD documents");
+                
+                // Extract disclaimer if present
+                let mainAnswer = data.answer;
+                let disclaimer = null;
+                
+                const disclaimerText = "This response is based solely on IRD-published documents and is not professional tax advice.";
+                if (data.answer.includes(disclaimerText)) {
+                    mainAnswer = data.answer.replace(disclaimerText, '').trim();
+                    disclaimer = disclaimerText;
+                }
 
+                // Build answer HTML
+                const answerContainer = document.getElementById('answerContainer');
+                let answerHTML = `<div class="answer-box${isNotAvailable ? ' not-available' : ''}">${mainAnswer}</div>`;
+                
+                // Add disclaimer if present and not "not available"
+                if (disclaimer && !isNotAvailable) {
+                    answerHTML += `<div class="disclaimer">${disclaimer}</div>`;
+                }
+                
+                answerContainer.innerHTML = answerHTML;
+
+                // Handle sources
                 const sourcesDiv = document.getElementById('sources');
-                if (data.sources && data.sources.length > 0) {
-                    let sourcesHTML = '<h3>Sources:</h3>';
+                if (data.sources && data.sources.length > 0 && !isNotAvailable) {
+                    let sourcesHTML = '<h3>📚 Sources:</h3>';
                     data.sources.forEach(source => {
                         sourcesHTML += `<div class="source-item">📄 ${source.file} (Page ${source.page})</div>`;
                     });
                     sourcesDiv.innerHTML = sourcesHTML;
+                    sourcesDiv.style.display = 'block';
                 } else {
-                    sourcesDiv.innerHTML = '<h3>No sources found</h3>';
+                    sourcesDiv.style.display = 'none';
                 }
 
                 document.getElementById('result').classList.add('active');
 
             } catch (error) {
-                document.getElementById('answer').innerHTML = 
-                    `<div class="error">Error: ${error.message}. Make sure the API server is running on http://localhost:8000</div>`;
+                const answerContainer = document.getElementById('answerContainer');
+                answerContainer.innerHTML = 
+                    `<div class="error">❌ Error: ${error.message}. Make sure the API server is running on http://localhost:8000</div>`;
                 document.getElementById('result').classList.add('active');
+                document.getElementById('sources').style.display = 'none';
             } finally {
                 document.getElementById('loading').classList.remove('active');
                 document.getElementById('askBtn').disabled = false;
