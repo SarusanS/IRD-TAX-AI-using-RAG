@@ -2,7 +2,7 @@ import os
 import fitz 
 
 Pdf_dir = "data/pdfs"
-MAX_CHUNK_SIZE = 200 
+MAX_CHUNK_SIZE = 200  
 
 def load_and_chunk_pdfs(pdf_dir="data/pdfs"):
     """
