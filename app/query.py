@@ -11,12 +11,11 @@ EMBEDDING_MODEL = "sentence-transformers/msmarco-bert-base-dot-v5"
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "") 
 client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
-MODEL = "llama-3.1-8b-instant" # Groq LLM model
+MODEL = "llama-3.1-8b-instant"
 
 print("Loading models...")
 sbert_model = SentenceTransformer(EMBEDDING_MODEL)
 
-# Don't load vector store at startup - load it for each query instead
 print("Ready to answer questions")
 
 def load_vector_store():
@@ -29,7 +28,53 @@ def load_vector_store():
         documents = pickle.load(f)
     return index, documents
 
-def answer_question(question: str, k: int = 5, debug: bool = False): 
+def filter_relevant_sources(answer: str, retrieved_docs: list, debug: bool = False):
+    """
+    Filter sources to only include documents that are actually mentioned or used in the answer
+    """
+  
+    all_sources = {}
+    for doc in retrieved_docs:
+        source = doc['source']
+        page = doc['page']
+        if source not in all_sources:
+            all_sources[source] = set()
+        all_sources[source].add(page)
+    
+   
+    mentioned_sources = {}
+    answer_lower = answer.lower()
+    
+    for source in all_sources.keys():
+        source_name = source.replace('.pdf', '').replace('_', ' ').lower()
+        source_short = source.split('_')[0].lower()
+        if source_name in answer_lower or source_short in answer_lower or source in answer:
+            mentioned_sources[source] = all_sources[source]
+    
+    if not mentioned_sources:
+        top_sources = {}
+        for doc in retrieved_docs[:3]:
+            source = doc['source']
+            page = doc['page']
+            if source not in top_sources:
+                top_sources[source] = set()
+            top_sources[source].add(page)
+        mentioned_sources = top_sources
+    
+    sources = []
+    for source, pages in sorted(mentioned_sources.items()):
+        for page in sorted(pages):
+            sources.append({"file": source, "page": page})
+    
+    if debug:
+        print(f"\nFiltered sources: {len(sources)} (from {len(all_sources)} total documents)")
+    
+    return sources
+
+def answer_question(question: str, k: int = 10, debug: bool = False): 
+    """
+    Intelligent query handler with smart source filtering
+    """
     if not client:
         return {
             "question": question,
@@ -37,13 +82,11 @@ def answer_question(question: str, k: int = 5, debug: bool = False):
             "sources": []
         }
     
-    # Load vector store fresh for each query (includes new uploads!)
     index, documents = load_vector_store()
     
     if debug:
         print(f"Loaded {len(documents)} chunks from vector store")
     
-    #RETRIEVE relevant chunks
     query_embedding = sbert_model.encode(
         [f"query: {question}"],
         normalize_embeddings=True
@@ -55,24 +98,46 @@ def answer_question(question: str, k: int = 5, debug: bool = False):
     if debug:
         print(f"\n Retrieved {k} chunks")
         print(f"Best distance: {distances[0][0]:.4f}")
-        print(f"Sources: {[doc['source'] for doc in retrieved_docs[:3]]}")
+        print(f"Top sources: {list(set([doc['source'] for doc in retrieved_docs[:3]]))}")
     
-    #Build context
-    context = "\n\n".join([doc["text"] for doc in retrieved_docs])
+    context_parts = []
+    for doc in retrieved_docs:
+        context_parts.append(f"[From document: {doc['source']}, Page {doc['page']}]\n{doc['text']}")
+    
+    context = "\n\n---\n\n".join(context_parts)
     
     if debug:
         print(f"Context: {len(context)} chars")
+        print("Calling Groq API...")
     
-    #GENERATE answer using Groq LLM
     try:
-        if debug:
-            print("Calling Groq API...")
-        
         chat_completion = client.chat.completions.create(
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a Sri Lankan tax expert assistant. Answer questions accurately based on the provided context from IRD documents."
+                    "content": """You are a Sri Lankan tax expert assistant. Answer questions based on IRD documents.
+
+CRITICAL INSTRUCTIONS:
+
+1. DO NOT start your answer with "The information can be found in..." or "According to [document]..." UNLESS the user specifically asks "Which document" or "What document".
+
+2. For content questions (What is X? How to calculate Y?):
+   - Start DIRECTLY with the answer
+   - Naturally mention the source document in your explanation if needed
+   - Example: "Personal Relief has been increased to Rs. 1,800,000 as announced in PN_IT_2025-01."
+   
+3. For document name questions (Which document? What document?):
+   - Answer with the document name clearly
+   - Then optionally provide brief content
+   
+4. Use the [From document: ...] tags to know which document each information comes from.
+
+5. Be concise and direct. Don't add unnecessary preambles.
+
+6. ALWAYS end with: "Note: This response is based on IRD documents and is not professional tax advice."
+
+7. If no relevant information is found, say: "I don't have enough information to answer this question."
+"""
                 },
                 {
                     "role": "user",
@@ -82,14 +147,14 @@ def answer_question(question: str, k: int = 5, debug: bool = False):
 
 Question: {question}
 
-Provide a clear, accurate answer based on the context above. If the answer is not in the context, say "I don't have enough information to answer this question."
+Answer directly and concisely. Do not start with "The information can be found in..." unless specifically asked about document names.ALWAYS end with in a new line: "Note: This response is based on IRD documents and is not professional tax advice."
 
 Answer:"""
                 }
             ],
             model=MODEL,
-            temperature=0.3,
-            max_tokens=300,
+            temperature=0.2,
+            max_tokens=400,
             top_p=0.9
         )
         
@@ -101,9 +166,7 @@ Answer:"""
     if debug:
         print(f"Generated answer: {answer[:200]}...")
     
-    #Sources
-    unique_sources = {(doc["source"], doc["page"]) for doc in retrieved_docs}
-    sources = [{"file": f, "page": p} for f, p in sorted(unique_sources)]
+    sources = filter_relevant_sources(answer, retrieved_docs, debug)
     
     return {
         "question": question,
@@ -113,7 +176,7 @@ Answer:"""
 
 if __name__ == "__main__":
     print("\n" + "="*70)
-    print("PROFESSIONAL RAG SYSTEM (Groq API - FREE)")
+    print("SMART RAG SYSTEM (Clean Answers + Relevant Sources Only)")
     print("="*70)
     
     if not GROQ_API_KEY:
@@ -131,6 +194,7 @@ if __name__ == "__main__":
     print(f"Groq API key found\n")
     
     test_questions = [
+        "What changes were announced in PN_IT_2025-01?",
         "What is the Corporate Income Tax rate for AY 2022/2023?",
         "What is SET?",
         "Which IRD document explains SET exemptions?",
@@ -141,9 +205,9 @@ if __name__ == "__main__":
         print(f" {question}")
         print('='*70)
         
-        result = answer_question(question, k=5, debug=True)
+        result = answer_question(question, k=10, debug=True)
         
         print(f"\n ANSWER: {result['answer']}")
         print(f"\n Sources:")
-        for src in result['sources'][:2]:
+        for src in result['sources']:
             print(f"   • {src['file']} (Page {src['page']})")
